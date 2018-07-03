@@ -1,0 +1,147 @@
+分库分表mycat
+
+56上做mycat   54和55时数据库服务器
+
+54上:
+]# cd /var/lib/mysql
+]# ls
+]# rm -rf 55-relay-bin.* master.info relay-log.info
+]# systemctl restart mysqld
+]# mysql -uroot -p123456
+留下四个初始的库其他的库都删了
+mysql> show slave status\G;  测验一下查询不到就对了
+mysql> create database db1;  创建数据库db1
+mysql> use db1;
+mysql> show tables;
+mysql> grant all on *.* to root@"%" identified by "123456";   用户授权
+mysql> show databases;
+mysql> quit;
+]# vim /etc/my.cnf
+[mysqld]
+lower_case_table_names = 1
+]# systemctl restart mysqld
+
+55上
+
+]# cd /var/lib/mysql
+]# ls
+]# rm -rf 54-relay-bin.* master.info relay-log.info
+]# systemctl restart mysqld
+]# mysql -uroot -p123456
+留下四个初始的库其他的库都删了
+mysql> show slave status\G;  测验一下查询不到就对了
+mysql> create database db2;  创建数据库db1
+mysql> use db2;
+mysql> show tables;
+mysql> grant all on *.* to root@"%" identified by "123456";   用户授权
+mysql> show databases;
+mysql> quit;
+]# vim /etc/my.cnf
+[mysqld]
+lower_case_table_names = 1
+]# systemctl restart mysqld
+
+
+56上
+]# masterha_stop  --conf=/etc/mha_manager/app1.cnf
+]# systemctl stop mysqld
+]# ping -c 3 192.168.4.54     能通
+]# ping -c 3 192.168.4.55     能通
+
+配置数据分片数据56步骤
+1  装包
+]# rpm -qa | grep -i jdk   # 安装系统自带的即可
+]# tar -zxf Mycat-server-1.4-beta-20150604171601-linux.tar.gz                解压
+]#mv mycat/ /usr/local
+
+2  改配置
+]#cd /usr/local/mycat/conf/
+]#vim rule.xml
+]#vim server.xml  设置连接 mycat 服务的账号 、密码等
+]# cp schema.xml schema.xml.bak  备份重要文件
+]#vim schema.xml 配置 mycat 使用的真实数据库和表
+
+2.1 定义连接mycat服务的用户和密码及虚拟数据库名称
+]#vim server.xml
+
+
+2.2 对那些表做数据分片及使用的分片规则
+]#vim schema.xml  逻辑表名 使用的分片规则 存储到哪个数据库服务器  dn1   dn2 
+
+指定dn1 存储数据的库名 db1
+指定dn2 存储数据的库名 db2
+
+指定dn1 对应的数据库服务器ip地址
+指定dn2 对应的数据库服务器ip地址
+
+根据配置在指定的数据库服务器上创建存储数据库的库和连接用户
+
+两台数据库服务器
+]#vim schema.xml
+行7        删掉dn3
+行11      删掉dn3
+行15      删掉dn3
+行37和38改称这样
+<dataNode name="dn1" dataHost="c1" database="db1" />
+<dataNode name="dn2" dataHost="c2" database="db2" />
+行39      注释掉   <!--   内容  -->
+行40      注释掉   <!--   内容  -->
+行43   
+<dataHost name="c1" maxCon="1000" minCon="10" balance="0"
+行47  
+<writeHost host="hostM1" url="192.168.4.55:3306" user="root"
+
+行52-53      注释掉   <!--   内容  -->
+
+复制43-55行 粘贴在56行之后
+
+<dataHost name="c2" maxCon="1000" minCon="10" balance="0"
+                writeType="0" dbType="mysql" dbDriver="native" switchType="1"  slaveThreshold="100">
+                <heartbeat>select user()</heartbeat>
+                <!-- can have multi write hosts -->
+                <writeHost host="hostM1" url="192.168.4.54:3306" user="root"
+          ]# cd /var/lib/mysql              password="123456">
+                        <!-- can have multi read hosts -->
+
+                </writeHost>
+                <!--<writeHost host="hostS1" url="localhost:3316" user="root"
+                                             password="123456" /> -->
+                <!-- <writeHost host="hostM2" url="localhost:3316" user="root" password="123456"/> -->
+        </dataHost>
+
+
+
+3启动或停止服务（56上）
+]#cd /usr/local/mycat/bin/
+]# /usr/local/mycat/bin/mycat start|stop
+]# ls /usr/local/mycat/logs/
+]# cat /usr/local/mycat/logs/mycat.pid 会看到一个pid值
+]# ps -P 2610      查看pid值
+]# ss -antpu | grep :8066     查看端口是否启动
+]# ss -antpu | grep java    查看
+
+
+4 查看服务信息
+]# ss -antpu | grep :8066
+
+5客户端测试配置
+]# which mysql
+
+]# mysql -h192.168.4.56 -P8066 -utest -ptest
+
+show databases;
+
+use TESTDB;
+
+show tables;
+
+desc employee;
+
+create table employee(id int not null primary key,name varchar(100),age int(2),sharding_id int not null);
+
+insert into employee(id,name,age,sharding_id) values(1,"bob",21,10000),(2,"lucy",18,10010),(3,"boba",21,10000),(4,"lucyf",18,10010);
+
+select * from employee;
+
+在55和54上分别查看一下
+select * from employee;

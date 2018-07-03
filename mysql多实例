@@ -1,0 +1,127 @@
+mysql多实例
+
+做之前先停mysqld服务并设为开机不自起
+ststemctl stop mysqld
+systemctl disable mysqld
+
+步骤:
+1、安装支持多实例服务的软件包
+mysql-5.7.20-linux-glibc2.12-x86_64.tar.gz
+
+tar -zxf mysql-5.7.20-linux-glibc2.12-x86_64.tar.gz
+
+ls mysql-5.7.20-linux-glibc2.12-x86_64
+
+mv mysql-5.7.20-linux-glibc2.12-x86_64 /usr/local/mysql
+
+打开环境变量配置文件
+vim /etc/profile
+在最下面添加
+export PATH=/usr/local/mysql/bin:$PATH
+保存退出
+source /etc/profile
+
+2、修改主配置文件
+mv /etc/my.cnf /etc/my.cnf.bak  
+
+vim /etc/my.cnf                
+[mysqld_multi]     // 启用多实例
+mysqld = /usr/local/mysql/bin/mysqld_safe   // 指定进程文件的路径
+mysqladmin = /usr/local/mysql/bin/mysqladmin // 指定管理命令路径
+user = root // 指定调用进程的用户
+
+[mysqld1] // 实例进程名称 ,1 表示实例名称 , 如 [mysqld1]
+port=3307             // 端口号
+datadir=/dir3307      // 数据库目录 ,要手动创建
+socket=/dir3307/mysqld3307.sock  // 指定 sock 文件的路径和名称.名称可以随便起，但要记住
+pid-file=/dir3307/mysqld.pid  //进程 pid 号文件位置
+log-error = /dir3307/mysqld.err // 错误日志位置
+
+[mysqld2]
+port=3308
+datadir=/dir3308
+socket=/dir3308/mysqld3308.sock
+pid-file=/dir3308/mysqld.pid
+log-error=/dir3308/mysqld.err
+保存退出
+
+3、根据配置文件做相应设置
+
+mkdir /dir3307 /dir3308
+
+chown mysql:mysql /dir3307 /dir3308
+
+4、初始化授权库
+cd /usr/local/mysql/bin
+mysqld --user=mysql --basedir= 软件安
+装目录 --datadir= 数据库目录 – initialize 
+
+即:
+cd /usr/local/mysql/bin
+
+mysqld --user=mysql --basedir=/usr/local/mysql --datadir=/dir3307 --initialize 
+最下面会有一个初始密码    N_ou2q9Y.bk!
+
+mysqld --user=mysql --basedir=/usr/local/mysql --datadir=/dir3308 --initialize 
+最下面会有一个初始密码  axF:<z?tY0+Y
+
+5、启动服务
+启动服务
+mysqld_multi start 1
+查看端口
+ss -antpu | grep :3307
+
+启动服务
+mysqld_multi start 2
+ 查看端口
+ss -antpu | grep :3308
+
+查看进程
+ps -C mysqld
+端口
+ss -antpu | grep mysqld
+ps aux | grep mysqld
+
+6、客户端访问
+连接本机的数据库服务
+cd /usr/local/mysql/bin
+
+mysql -uroot –p'初始密码'  -S sock文件
+
+即：
+用初始密码登录
+mysql -uroot –p'N_ou2q9Y.bk!' -S /dir3307/mysqld3307.sock
+改密码:
+mysql> alter user root@"localhost" identified by "123456"
+mysql>quit;
+用新密码登录
+mysql -uroot –p123456 -S /dir3307/mysqld3307.sock
+mysql>show databases;
+然后就建库  建表了
+
+
+用初始密码登录
+mysql -uroot –p'axF:<z?tY0+Y' -S /dir3308/mysqld3308.sock
+改密码:
+mysql> alter user root@"localhost" identified by "123456"
+mysql>quit;
+用新密码登录
+mysql -uroot –p123456 -S /dir3308/mysqld3308.sock
+mysql>show databases;
+然后就建库  建表了
+
+
+7、停止指定的多实例服务(起的话查看第5步启动服务)
+
+mysqld_multi --user=root --password=
+密码 stop 实例编号
+
+即
+
+停3307
+mysqld_multi --user=root --password=
+1234123456 stop 1
+
+停3308
+mysqld_multi --user=root --password=
+123456 stop 2

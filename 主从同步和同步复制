@@ -1,0 +1,239 @@
+主从同步
+
+重要实验：
+准备2台数据库服务器  192.168.4.51(master) 、192.168.4.52(slave)
+
+
+主库配置步骤：192.168.4.51
+1、启动binlog日志
+vim /etc/my.cnf
+[mysqld]
+server_id=51
+log-bin=master51
+binlog-format="mixed"
+
+2、重启数据库服务并查看文件
+systemctl restart mysqld
+ls /var/lib/mysql/master51.*
+
+3、用户授权
+mysql -uroot -p123456
+mysql> grant replication slave on *.* to repluser@"192.168.4.52" identified by "123qqq...A";
+
+4、查看正在使用的binlog日志信息
+mysql> show master status;
+
+
+从库配置步骤：192.168.4.52
+1、验证主库授权用户
+mysql -h192.168.4.51 -urepluser -p123qqq...A
+mysql> quit;
+
+2、指定server_id 
+重要:指定的server_id一定不能和其他指定的server_id相同
+vim /etc/my.cnf
+[mysqld]
+server_id=52
+重启服务
+systemctl restart mysqld
+
+3、指定主库信息
+mysql -uroot -p123456
+mysql> show slave status\G;   没指定之前查的时候是空的
+master51.000001 (在192.168.4.51(主库)上查的  mysql> show master status;)
+452   (在192.168.4.51(主库)上查的  mysql> show master status;)
+第一次指定就用change，之后就是修改
+mysql>change master to master_host="192.168.4.51",主库ip
+master_user="repluser",              主库授权的用户名
+master_password="123qqq...A",       主库授权的用户名密码
+master_log_file="master51.000001",   binlog日志
+master_log_pos=452;                    偏移量
+
+4、查看从库状态信息
+mysql>start slave;            起一下slave进程
+mysql> show slave status\G;   每一行占一列显示
+找到这两行同时是YES状态就可以了
+            Slave_IO_Running: Yes
+            Slave_SQL_Running: Yes
+
+
+主从同步的工作原理：
+cd /var/lib/mysql
+ls   （有这四个文件就可以了）
+master.info
+relay-log.info
+db52-relay-bin.xxxxxx   (xxxxxx:会以000001的方式显示)
+db52-relay-bin.index
+
+IO线程：
+Last_IO_Error:
+SQL线程：
+Last_SQL_Error:
+
+
+弄错了，要重新弄，删文件(从库中操作)
+cd /var/lib/mysql
+rm -rf master.info
+rm -rf relay-log.info
+rm -rf db52-relay-bin.*
+rm -rf master53.*
+
+然后从第3步(从库)指定主库信息开始做
+
+mysql>show processlist;     查看列出程序列表(主库中查看)
+
+
+客户端（真机）验证主从同步配置
+1、在主库上添加访问数据时连接的用户
+mysql>create database bbsdb;
+mysql>grant all on bbsdb.* to jim@"%" identified by "123qqq...A";
+
+2、客户端（真机）访问
+mysql -h主库IP -u主库上授权的用户名  -p主库上授权的用户密码 
+MySQL [(none)]>show databases;
+建表插入记录
+MySQL [(none)]> create table bbsdb.t1(id int(3));
+MySQL [(none)]> insert into bbsdb.t1 values(101),(202),(303),(404);
+查看是否有数据
+MySQL [(none)]> select * from bbsdb.t1;
+
+在在主库(192.168.4.51)和从库(192.168.4.52)中查看是否是同样的数据
+用root用户登录
+mysql> select * from bbsdb.t1;   主库上操作
+mysql> select * from bbsdb.t1;   从库上操作
+create database
+
+#################################################
+
+让当前从库临时不同步主库上的数据
+mysql>stop slave;
+
+在从库中修改主库中的信息：
+先暂停
+mysql>stop slave;
+哪一项错了就改哪一项(不知道是to还是tom)
+mysql>change master tom 选项="值",选项="值"; 
+改完后要让他生效
+mysql>start slave;
+
+主从配置常用参数：
+
+主库  /etc/my.cnf
+[mysql]
+二选一:
+binlog_do_db=db2,bbsdb    只允许同步的库
+binlog_ignore_db=db9      只不create database允许同步的库
+
+
+从库  /etc/my.cnf(重点记住)
+[mysql]
+log_slave_updates    级联复制(在配置文件中加)
+二选一:
+replicate_do_db=db3,db5  只同步的库（db3,db5：库名）
+replicate_ignore_db=db1,db7,db9 只不允许同步的库（db：库名)
+
+
+主从同步模式
+
+1、主从同步结构模式
+
+一主一从
+一主多从  把50主机配置为51的从库
+从配置步骤：192.168.4.50
+1、验证主库授权用户
+2、指定server_id
+3、指定主库信息
+4、查看从库状态信息
+
+
+2、主从从 把主机53配置为52从库
+
+配置主库 192.168.4.52
+启用binlog日志
+用户授权
+
+配置从库：192.168.4.53
+1、验证主库授权用户
+2、指定server_id
+3、指定主库信息
+4、查看从库状态信息create database
+
+注意：从库的sql线程执行本机中继日志文件里的sql命令，不会记录在本机的binlog日志文件里
+
+3、主主结构（互为主从）课后练习
+
+
+
+
+mysql主从同步复制模式
+异步复制
+全同步复制
+半同步复制
+
+查看是否支持动态加载模块
+mysql>show variables like "have_dynamic_loading";
+
+主库安装的模块：
+mysql>INSTALL PLUGIN rpl_semi_sync_master SONAME'semisync_master.so';
+
+查看系统库下的表，模块是否安装成功
+mysql> 
+SELECT   PLUGIN_NAME ,  PLUGIN_STATUS 
+FROM   INFORMATION_SCHEMA.PLUGINS  
+WHERE 
+PLUGIN_NAME  LIKE   '%semi%';
+
+
+
+从库安装的模块
+mysql>INSTALL PLUGIN rpl_semi_sync_slave SONAME'semisync_slave.so';
+然后从第3步(从库)指定主库信息开始做
+启用半同步复制
+
+
+启用半同步复制模式
+主库
+mysql>SET GLOBAL rpl_semi_sync_master_enabled = 1;
+
+从库
+mysql>SET GLOBAL rpl_semi_create databasesync_slave_enabled = 1;
+
+查看本机的半同步复制状态
+mysql>show variables like "rpl_semi_sync_%_enabled"; 
+
+
+修改配置文件/etc/my.cnf 让安装模块和启用的模式永久生效。
+
+主库
+vim /etc/my.cnf然后从第3步(从库)指定主库信息开始做
+[mysqld]
+plugin-load=rpl_semi_sync_master=semisync_master.so
+rpl_semi_sync_master_enabled=1
+:wq
+
+从库
+vim /etc/my.cnf
+[mysqld]
+plugin-load=rpl_semi_sync_slave=semisync_slave.so
+rpl_semi_sync_slave_enabled=1
+
+既做主又做从
+vim /etc/my.cnf
+[mysqld]
+plugin-load = "rpl_semi_sync_master=semisync_master.so;
+rpl_semi_sync_slave=semisync_slave.so"
+rpl-semi-sync-master-enabled = 1
+rpl-semi-sync-slave-enab公测led = 1
+
+
+
+++++++++++++++++++++++++++create database+++++++++++++++++++++++++
+报错问题：（在从库中）
+mysql> change master to master_host="192.168.4.52",master_user="repluser",
+master_password="123qqq...A",
+master_log_file="master51.000001",master_log_pos=1035;
+
+ERROR 3021 (HY000): This operation cannot be performed with a running slave io thread; run STOP SLAVE IO_THREAD FOR CHANNEL '' first.
+
+解决：
+mysql> stop slave;

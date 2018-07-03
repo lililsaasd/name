@@ -1,0 +1,86 @@
+读写分离
+
+在主机100上部署代理服务，实现数据读写分离
+1、 装包
+rpm -ivh maxscale-2.1.2-1.rhel.7.x86_64.rpm
+查一下
+rpm -qc maxscale
+ls /etc/maxscale.cnf
+备份一下
+cp /etc/maxscale.cnf /etc/maxscale.cnf.bak
+
+2、修改主配置文件,并根据配置文件的设置在数据库服务器上添加对应的授权用户
+vim /etc/maxs修改主配置文件,并根据配置文件的设置在数据库服务器上添加对应的授权用户cale.cnf
+10行       threads=auto    (本来默认1)
+18行   有两台数据库服务器
+      [server1]
+     type=server
+     address=192.168.4.10
+     port=3306
+     protocol=MySQLBackend
+  
+     [server2]
+    type=server
+    address=192.168.4.20
+    port=3306
+    protocol=MySQLBackend
+
+39行  servers=server1, server2   (逗号空格)
+40行    user=abc          用户名密码随便起，但要记住
+41行    passwd=123456
+
+53行到59行注释
+
+67行   server=server1, server2   (逗号空格)
+68行    user=abcd          用户名密码随便起，但要记住
+69行    passwd=123456
+
+86行到90行注释
+
+102行下面添加   port=4099
+
+保存退出
+
+在主库10里
+abc用户
+mysql> grant replication slave,replication client on *.* to
+abc@"%" identified by "123456"; // 创建监控用户
+
+abcd用户
+mysql> grant select on mysql.* to abcd@'%' identified by
+"123456";   // 创建路由用户
+
+查看一下
+mysql>select user from mysql.user where user in ("abc","abcd");
+
+在100上测试是否能连上数据库（测试授权）
+mysql -h192.168.4.10 -uabc -p123456
+mysql -h192.168.4.20 -uabc -p123456
+mysql -h192.168.4.10 -uabcd -p123456
+mysql -h192.168.4.20 -uabcd -p123456
+
+3、启动服务
+maxscale -f /etc/maxscale.cnf
+查进程
+ps -C maxscale
+看端口
+netstat -utnlp | grep maxscale
+
+4、测试配置
+1)在主机100上连接管理服务查看监控信息
+maxadmin -uadmin -pmariadb -P4099
+MaxScale>list servers    列出所有服务器列表
+
+
+2)在客户端连接100主机，测试访问数据时能否实现数据读写分离
+
+ping -c 2 192.168.4.100
+
+which mysql
+
+mysql -h192.168.4.100 -P4006 -uyaya -p123456
+
+
+
+客户端client
+mysql -h192.168.4.100 -u用户名 -p密码
